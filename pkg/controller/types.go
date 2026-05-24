@@ -17,7 +17,6 @@ type DbConfigSync struct {
 type DbConfigSyncSpec struct {
 	TargetConfigMap string         `json:"targetConfigMap,omitempty"`
 	TargetSecret    string         `json:"targetSecret,omitempty"`
-	RefreshInterval int            `json:"refreshInterval,omitempty"`
 	Reflection      ReflectionSpec `json:"reflection,omitempty"`
 	Databases       []DatabaseSpec `json:"databases"`
 	Transforms      []TransformSpec `json:"transforms,omitempty"`
