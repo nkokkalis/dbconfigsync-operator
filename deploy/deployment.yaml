@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: operator-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dbconfigsync-operator
+  namespace: operator-system
+  labels:
+    app: dbconfigsync-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dbconfigsync-operator
+  template:
+    metadata:
+      labels:
+        app: dbconfigsync-operator
+    spec:
+      serviceAccountName: dbconfigsync-operator
+      containers:
+        - name: manager
+          image: dbconfigsync-operator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - "./envsync"
+          args:
+            - "-mode"
+            - "kubernetes"
+            - "-namespace"
+            - "operator-system"
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi

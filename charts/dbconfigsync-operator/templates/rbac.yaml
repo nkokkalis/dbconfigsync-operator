@@ -1,0 +1,54 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ default (include "dbconfigsync-operator.fullname" .) .Values.serviceAccount.name }}
+  labels:
+    {{- include "dbconfigsync-operator.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+---
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "dbconfigsync-operator.fullname" . }}-role
+  labels:
+    {{- include "dbconfigsync-operator.labels" . | nindent 4 }}
+rules:
+  # CRD resource permissions
+  - apiGroups: ["config.operator.io"]
+    resources: ["dbconfigsyncs"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["config.operator.io"]
+    resources: ["dbconfigsyncs/status"]
+    verbs: ["get", "update", "patch"]
+
+  # ConfigMaps and Secrets (Read source credentials, write sync targets)
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # Namespace queries
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "dbconfigsync-operator.fullname" . }}-rolebinding
+  labels:
+    {{- include "dbconfigsync-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "dbconfigsync-operator.fullname" . }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ default (include "dbconfigsync-operator.fullname" .) .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

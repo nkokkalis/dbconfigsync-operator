@@ -1,0 +1,31 @@
+# Binaries
+envsync
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Go build/test cache
+*.test
+*.out
+*.prof
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local config and env files
+.env
+sync-config.json
+
+# Helm packaging
+charts/*/charts/
+*.tgz

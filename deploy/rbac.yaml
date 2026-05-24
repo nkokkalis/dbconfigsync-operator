@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dbconfigsync-operator
+  namespace: operator-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: dbconfigsync-operator-role
+rules:
+  # 1. Custom Resource Definition permissions
+  - apiGroups: ["config.operator.io"]
+    resources: ["dbconfigsyncs"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["config.operator.io"]
+    resources: ["dbconfigsyncs/status"]
+    verbs: ["get", "update", "patch"]
+
+  # 2. ConfigMaps and Secrets (Read credentials and Write targets)
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+  # 3. Namespaces (Read namespaces if needed for validation)
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: dbconfigsync-operator-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: dbconfigsync-operator-role
+subjects:
+  - kind: ServiceAccount
+    name: dbconfigsync-operator
+    namespace: operator-system

@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-dev
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-prod
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-app-dev
+  namespace: app-dev
+  annotations:
+    reloader.stakater.com/auto: "true"
+  labels:
+    app: client-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-app
+  template:
+    metadata:
+      labels:
+        app: client-app
+    spec:
+      containers:
+        - name: client
+          image: dbconfigsync-operator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - "./envsync"
+          args:
+            - "-mode"
+            - "service"
+            - "-serviceName"
+            - "app-client-dev"
+          envFrom:
+            - configMapRef:
+                name: app-shared-env
+                optional: true
+          resources:
+            limits:
+              cpu: 50m
+              memory: 32Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: client-app-prod
+  namespace: app-prod
+  annotations:
+    reloader.stakater.com/auto: "true"
+  labels:
+    app: client-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: client-app
+  template:
+    metadata:
+      labels:
+        app: client-app
+    spec:
+      containers:
+        - name: client
+          image: dbconfigsync-operator:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - "./envsync"
+          args:
+            - "-mode"
+            - "service"
+            - "-serviceName"
+            - "app-client-prod"
+          envFrom:
+            - configMapRef:
+                name: app-shared-env
+                optional: true
+          resources:
+            limits:
+              cpu: 50m
+              memory: 32Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi

@@ -1,0 +1,73 @@
+apiVersion: config.operator.io/v1
+kind: DbConfigSync
+metadata:
+  name: app-config-sync
+  namespace: operator-system
+spec:
+  targetConfigMap: "app-shared-env"
+  refreshInterval: 10
+  
+  # Emberstack Reflector Namespace Replication Settings
+  reflection:
+    allowed: true
+    allowedNamespaces: "app-dev,app-prod"
+    autoEnabled: true
+    autoNamespaces: "app-dev,app-prod"
+
+  databases:
+    # 1. PostgreSQL Source
+    - type: postgresql
+      connectionUri: "postgres://postgres:postgres@postgres-service.databases.svc.cluster.local:5432/app_db?sslmode=disable"
+      query: "SELECT key, val FROM app_settings WHERE is_active = 1"
+
+    # 2. Redis Source
+    - type: redis
+      connectionUri: "redis://redis-service.databases.svc.cluster.local:6379/0"
+      query: "HGETALL settings:app"
+
+    # 3. PostgreSQL Metadata Source (Arbitrary Table Query with Key Mapping)
+    - type: postgresql
+      connectionUri: "postgres://postgres:postgres@postgres-service.databases.svc.cluster.local:5432/app_db?sslmode=disable"
+      query: "SELECT installation_id, license_key, extra_info FROM system_metadata LIMIT 1"
+      keyMapping:
+        INSTALLATION_ID: "SYS_INSTALL_ID"
+        LICENSE_KEY: "SYS_LICENSE_KEY"
+        EXTRA_INFO: "EXTRA_INFO"
+
+  transforms:
+    # 1. Template-based Concat
+    - name: "DATABASE_URL"
+      type: "template"
+      template: "postgres://{{.DB_USER}}:{{.DB_PASS}}@{{.DB_HOST}}:{{.DB_PORT}}/{{.DB_NAME}}?sslmode=disable"
+      
+    # 2. Joining explicit static lists
+    - name: "CORS_ALLOWED_ORIGINS"
+      type: "join"
+      separator: ","
+      sourceKeys:
+        - "CORS_WEB"
+        - "CORS_MOBILE"
+        
+    # 3. Dynamic regex joining (alphabetically sorted)
+    - name: "REDIS_CLUSTER_NODES"
+      type: "join"
+      separator: ";"
+      sourcePattern: "^REDIS_NODE_\\d+$"
+
+    # 4. Base64 encoding of DB_PASS
+    - name: "DB_PASS_B64"
+      type: "base64"
+      sourceKey: "DB_PASS"
+      operation: "encode"
+
+    # 5. JSON Path extraction of database username
+    - name: "EXTRA_DB_USER"
+      type: "jsonpath"
+      sourceKey: "EXTRA_INFO"
+      jsonPath: "$.database.username"
+
+    # 6. JSON Path extraction of first role
+    - name: "EXTRA_FIRST_ROLE"
+      type: "jsonpath"
+      sourceKey: "EXTRA_INFO"
+      jsonPath: "$.roles[0]"

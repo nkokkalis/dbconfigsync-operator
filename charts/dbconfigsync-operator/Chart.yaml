@@ -1,0 +1,21 @@
+apiVersion: v2
+name: dbconfigsync-operator
+description: A Kubernetes operator to sync environment configurations dynamically from PostgreSQL, MySQL, Redis, and MongoDB to ConfigMaps/Secrets, with support for values transformations, Reloader and Reflector cooperation.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+kubeVersion: ">=1.20.0"
+keywords:
+  - operator
+  - kubernetes
+  - postgresql
+  - mysql
+  - redis
+  - mongodb
+  - configmap
+  - secret
+  - sync
+  - configuration
+maintainers:
+  - name: Nicolas
+    email: nicolas@example.com
