@@ -1,7 +1,7 @@
 # DbConfigSync Operator
 
 [![License: BSD-3-Clause](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
-[![Go Report Card](https://goreportcard.com/badge/github.com/nicolas/dbconfigsync-operator)](https://goreportcard.com/report/github.com/nicolas/dbconfigsync-operator)
+[![Go Report Card](https://goreportcard.com/badge/github.com/nkokkalis/dbconfigsync-operator)](https://goreportcard.com/report/github.com/nkokkalis/dbconfigsync-operator)
 
 DbConfigSync Operator is a production-ready, high-performance Kubernetes Custom Operator written in Go. It dynamically queries configuration variables from PostgreSQL, MySQL, Redis, and MongoDB, applies real-time value transformations, and synchronizes them directly into Kubernetes ConfigMaps or Secrets.
 
