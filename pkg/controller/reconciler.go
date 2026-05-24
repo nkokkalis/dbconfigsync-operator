@@ -368,7 +368,10 @@ func (r *K8sReconciler) updateCRStatus(ctx context.Context, gvr schema.GroupVers
 	}
 
 	// Update in cluster using unstructured client patch/update
-	unstructured.SetNestedMap(item.Object, statusObj, "status")
+	if err := unstructured.SetNestedMap(item.Object, statusObj, "status"); err != nil {
+		EmitLog("operator", "error", "Failed to set status on custom resource '%s': %v", crName, err)
+		return
+	}
 	_, err := r.DynamicClient.Resource(gvr).Namespace(r.CRDNamespace).UpdateStatus(ctx, &item, metav1.UpdateOptions{})
 	if err != nil {
 		// Log but do not block since the ConfigMap itself synced successfully

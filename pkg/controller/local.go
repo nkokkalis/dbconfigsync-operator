@@ -153,11 +153,11 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 
 func (r *LocalReconciler) writeEnvFile(configs map[string]string) error {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# EnvSync Auto-Generated Environment Variables (Version v%d)\n", r.ActiveVersion))
-	sb.WriteString(fmt.Sprintf("# Generated at: %s\n\n", time.Now().Format(time.RFC3339)))
+	fmt.Fprintf(&sb, "# EnvSync Auto-Generated Environment Variables (Version v%d)\n", r.ActiveVersion)
+	fmt.Fprintf(&sb, "# Generated at: %s\n\n", time.Now().Format(time.RFC3339))
 
 	for k, v := range configs {
-		sb.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+		fmt.Fprintf(&sb, "%s=%s\n", k, v)
 	}
 
 	return os.WriteFile(r.OutEnvFile, []byte(sb.String()), 0644)

@@ -41,7 +41,7 @@ func fetchSQL(ctx context.Context, driverName, connectionUri, query string) (map
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	db.SetConnMaxLifetime(10 * time.Second)
 	
@@ -54,7 +54,7 @@ func fetchSQL(ctx context.Context, driverName, connectionUri, query string) (map
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -138,7 +138,7 @@ func fetchRedis(ctx context.Context, connectionUri, query string) (map[string]st
 	}
 
 	rdb := redis.NewClient(opt)
-	defer rdb.Close()
+	defer func() { _ = rdb.Close() }()
 
 	// Ping check
 	if err := rdb.Ping(ctx).Err(); err != nil {
@@ -226,7 +226,7 @@ func fetchMongo(ctx context.Context, connectionUri, query string) (map[string]st
 	if err != nil {
 		return nil, fmt.Errorf("mongodb find query failed: %w", err)
 	}
-	defer cursor.Close(ctx)
+	defer func() { _ = cursor.Close(ctx) }()
 
 	configs := make(map[string]string)
 	for cursor.Next(ctx) {
