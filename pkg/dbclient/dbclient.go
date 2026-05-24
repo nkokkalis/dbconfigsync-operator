@@ -151,7 +151,7 @@ func fetchRedis(ctx context.Context, connectionUri, query string) (map[string]st
 	}
 
 	cmd := strings.ToUpper(parts[0])
-	key := parts[1]
+	key := strings.Join(parts[1:], " ")
 	configs := make(map[string]string)
 
 	switch cmd {
