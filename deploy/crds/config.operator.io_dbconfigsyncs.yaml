@@ -51,10 +51,10 @@ spec:
                           - mongo
                       connectionUri:
                         type: string
-                        description: "Direct connection URI for the database. Mutually exclusive with connectionSecretRef; at least one must be specified."
+                        description: "Inline connection URI for the database. At least one of connectionUri or connectionSecretRef must be specified. When both are set, connectionSecretRef takes precedence."
                       connectionSecretRef:
                         type: object
-                        description: "Reference to a Kubernetes Secret containing the connection URI. Mutually exclusive with connectionUri; at least one must be specified."
+                        description: "Reference to a Kubernetes Secret containing the connection URI. At least one of connectionUri or connectionSecretRef must be specified. When both are set, this field takes precedence."
                         required:
                           - name
                           - key
