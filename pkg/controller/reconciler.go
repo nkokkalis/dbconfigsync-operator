@@ -103,6 +103,13 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 
 	EmitLog("operator", "info", "Reconciling DbConfigSync '%s'...", crName)
 
+	// Fix 5: guard against no target configured
+	if syncCR.Spec.TargetConfigMap == "" && syncCR.Spec.TargetSecret == "" {
+		EmitLog("operator", "warn", "CR '%s' has no targetConfigMap or targetSecret configured — nothing to sync.", crName)
+		r.updateCRStatus(ctx, gvr, item, "Misconfigured", "Neither targetConfigMap nor targetSecret is set.", map[string]string{}, r.Versions[crName])
+		return
+	}
+
 	dbStatuses := make(map[string]string)
 	aggregatedConfigs := make(map[string]string)
 	hasError := false
@@ -178,7 +185,7 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 
 	// Stop if DB read errors occurred
 	if hasError {
-		r.updateCRStatus(ctx, gvr, item, "Error", strings.Join(errMsgs, "; "), dbStatuses)
+		r.updateCRStatus(ctx, gvr, item, "Error", strings.Join(errMsgs, "; "), dbStatuses, r.Versions[crName])
 		return
 	}
 
@@ -186,18 +193,25 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 	EmitLog("operator", "info", "Executing value transformations...")
 	finalConfigs, err := ProcessTransforms(aggregatedConfigs, syncCR.Spec.Transforms)
 	if err != nil {
-		r.updateCRStatus(ctx, gvr, item, "Error", fmt.Sprintf("Transform error: %v", err), dbStatuses)
+		r.updateCRStatus(ctx, gvr, item, "Error", fmt.Sprintf("Transform error: %v", err), dbStatuses, r.Versions[crName])
 		EmitLog("operator", "error", "Transformations failed: %v", err)
 		return
 	}
 	EmitLog("operator", "success", "Transformations executed successfully. Syncing %d final keys.", len(finalConfigs))
+
+	// Fix 4: guard against empty result set
+	if len(finalConfigs) == 0 {
+		EmitLog("operator", "warn", "CR '%s': no configuration keys found after DB fetch and transforms. Skipping sync to avoid overwriting with empty data.", crName)
+		r.updateCRStatus(ctx, gvr, item, "Warning", "No configuration keys found — skipping sync.", dbStatuses, r.Versions[crName])
+		return
+	}
 
 	// 3. Write ConfigMap or Secret in K8s
 	syncChanged := false
 	if syncCR.Spec.TargetConfigMap != "" {
 		changed, err := r.syncConfigMap(ctx, syncCR.Spec.TargetConfigMap, r.CRDNamespace, finalConfigs, syncCR.Spec.Reflection)
 		if err != nil {
-			r.updateCRStatus(ctx, gvr, item, "Error", fmt.Sprintf("ConfigMap sync error: %v", err), dbStatuses)
+			r.updateCRStatus(ctx, gvr, item, "Error", fmt.Sprintf("ConfigMap sync error: %v", err), dbStatuses, r.Versions[crName])
 			EmitLog("k8s", "error", "Failed to sync ConfigMap '%s': %v", syncCR.Spec.TargetConfigMap, err)
 			return
 		}
@@ -207,22 +221,22 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 	if syncCR.Spec.TargetSecret != "" {
 		changed, err := r.syncSecret(ctx, syncCR.Spec.TargetSecret, r.CRDNamespace, finalConfigs, syncCR.Spec.Reflection)
 		if err != nil {
-			r.updateCRStatus(ctx, gvr, item, "Error", fmt.Sprintf("Secret sync error: %v", err), dbStatuses)
+			r.updateCRStatus(ctx, gvr, item, "Error", fmt.Sprintf("Secret sync error: %v", err), dbStatuses, r.Versions[crName])
 			EmitLog("k8s", "error", "Failed to sync Secret '%s': %v", syncCR.Spec.TargetSecret, err)
 			return
 		}
 		syncChanged = changed || syncChanged
 	}
 
-	// Increment version if values changed
+	// Fix 3: compute version increment before status write, commit to map after
 	currVersion := r.Versions[crName]
 	if syncChanged || currVersion == 0 {
 		currVersion++
-		r.Versions[crName] = currVersion
 		EmitLog("operator", "success", "Configuration change detected! Promoted configuration version to v%d", currVersion)
 	}
 
-	r.updateCRStatus(ctx, gvr, item, "Synced", "All database sources synchronized successfully.", dbStatuses)
+	r.updateCRStatus(ctx, gvr, item, "Synced", "All database sources synchronized successfully.", dbStatuses, currVersion)
+	r.Versions[crName] = currVersion
 }
 
 func (r *K8sReconciler) syncConfigMap(ctx context.Context, name, namespace string, data map[string]string, reflection ReflectionSpec) (bool, error) {
@@ -265,13 +279,29 @@ func (r *K8sReconciler) syncConfigMap(ctx context.Context, name, namespace strin
 		return false, err
 	}
 
-	// Check if data or annotations changed
+	// Check if data or annotations changed.
+	// Only compare the operator-managed keys (not the full annotation map) to avoid
+	// spurious updates from third-party annotations (kubectl, Argo CD, Helm, etc.).
 	dataChanged := !reflect.DeepEqual(existing.Data, data)
-	annoChanged := !reflect.DeepEqual(existing.Annotations, annotations)
+	annoChanged := false
+	for k, want := range annotations {
+		if got, ok := existing.Annotations[k]; !ok || got != want {
+			annoChanged = true
+			break
+		}
+	}
 
 	if dataChanged || annoChanged {
 		existing.Data = data
-		existing.Annotations = annotations
+		// Fix 2: merge annotations — preserve existing ones, overlay operator-managed keys
+		mergedAnnotations := make(map[string]string)
+		for k, v := range existing.Annotations {
+			mergedAnnotations[k] = v
+		}
+		for k, v := range annotations {
+			mergedAnnotations[k] = v
+		}
+		existing.Annotations = mergedAnnotations
 		_, err = cmClient.Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
 			return false, err
@@ -331,13 +361,27 @@ func (r *K8sReconciler) syncSecret(ctx context.Context, name, namespace string, 
 		return false, err
 	}
 
-	// Compare byteData
+	// Compare byteData and operator-managed annotation keys only (not the full map).
 	dataChanged := !reflect.DeepEqual(existing.Data, byteData)
-	annoChanged := !reflect.DeepEqual(existing.Annotations, annotations)
+	annoChanged := false
+	for k, want := range annotations {
+		if got, ok := existing.Annotations[k]; !ok || got != want {
+			annoChanged = true
+			break
+		}
+	}
 
 	if dataChanged || annoChanged {
 		existing.Data = byteData
-		existing.Annotations = annotations
+		// Fix 2: merge annotations — preserve existing ones, overlay operator-managed keys
+		mergedAnnotations := make(map[string]string)
+		for k, v := range existing.Annotations {
+			mergedAnnotations[k] = v
+		}
+		for k, v := range annotations {
+			mergedAnnotations[k] = v
+		}
+		existing.Annotations = mergedAnnotations
 		_, err = secretClient.Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
 			return false, err
@@ -350,9 +394,9 @@ func (r *K8sReconciler) syncSecret(ctx context.Context, name, namespace string, 
 	return false, nil
 }
 
-func (r *K8sReconciler) updateCRStatus(ctx context.Context, gvr schema.GroupVersionResource, item unstructured.Unstructured, syncStatus, msg string, dbStatuses map[string]string) {
+func (r *K8sReconciler) updateCRStatus(ctx context.Context, gvr schema.GroupVersionResource, item unstructured.Unstructured, syncStatus, msg string, dbStatuses map[string]string, version int) {
 	crName := item.GetName()
-	
+
 	// In lightweight dynamic controller, update status subresource
 	dbStatusesInterface := make(map[string]interface{})
 	for k, v := range dbStatuses {
@@ -361,7 +405,7 @@ func (r *K8sReconciler) updateCRStatus(ctx context.Context, gvr schema.GroupVers
 
 	statusObj := map[string]interface{}{
 		"lastReconciled":   time.Now().Format("2006-01-02 15:04:05"),
-		"activeVersion":    int64(r.Versions[crName]),
+		"activeVersion":    int64(version),
 		"syncStatus":       syncStatus,
 		"message":          msg,
 		"databaseStatuses": dbStatusesInterface,
