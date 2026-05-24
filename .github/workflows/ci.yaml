@@ -11,8 +11,10 @@ on:
       - main
 
 permissions:
-  contents: write  # Required for creating GitHub Releases
-  packages: write  # Required to push to GHCR
+  contents: write      # Required for creating GitHub Releases
+  packages: write      # Required to push to GHCR
+  attestations: write  # Required for SLSA provenance and SBOM attestations
+  id-token: write      # Required to sign attestations via OIDC
 
 jobs:
   lint:
@@ -92,6 +94,7 @@ jobs:
             type=sha,prefix=
 
       - name: Build and Push Container Image
+        id: build
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -102,6 +105,15 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest image provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   release:
     name: GitHub Release with Helm Chart
