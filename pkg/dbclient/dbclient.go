@@ -44,7 +44,7 @@ func fetchSQL(ctx context.Context, driverName, connectionUri, query string) (map
 	defer func() { _ = db.Close() }()
 
 	db.SetConnMaxLifetime(10 * time.Second)
-	
+
 	// Check connection
 	if err := db.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
@@ -62,7 +62,7 @@ func fetchSQL(ctx context.Context, driverName, connectionUri, query string) (map
 	}
 
 	configs := make(map[string]string)
-	
+
 	// Normalize column names to check key-value pair format
 	isKeyValueFormat := false
 	if len(cols) == 2 {
@@ -145,13 +145,15 @@ func fetchRedis(ctx context.Context, connectionUri, query string) (map[string]st
 		return nil, fmt.Errorf("failed to ping redis: %w", err)
 	}
 
-	parts := strings.Fields(query)
-	if len(parts) < 2 {
+	// Split only on the first whitespace run so that keys containing spaces
+	// (e.g. "HGETALL my app:config key") are passed to Redis verbatim.
+	trimmed := strings.TrimSpace(query)
+	sep := strings.IndexAny(trimmed, " \t\n\r")
+	if sep < 0 {
 		return nil, fmt.Errorf("invalid redis query format, expected 'HGETALL key' or 'GET key'")
 	}
-
-	cmd := strings.ToUpper(parts[0])
-	key := strings.Join(parts[1:], " ")
+	cmd := strings.ToUpper(trimmed[:sep])
+	key := strings.TrimLeft(trimmed[sep+1:], " \t\n\r")
 	configs := make(map[string]string)
 
 	switch cmd {
@@ -215,7 +217,7 @@ func fetchMongo(ctx context.Context, connectionUri, query string) (map[string]st
 	}
 
 	coll := client.Database(mq.DB).Collection(mq.Collection)
-	
+
 	// Convert filter map to bson.M
 	filterBson := bson.M{}
 	for k, v := range mq.Filter {
