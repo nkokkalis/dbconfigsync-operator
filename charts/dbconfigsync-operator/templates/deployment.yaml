@@ -49,8 +49,9 @@ spec:
           livenessProbe:
             exec:
               command:
-                - pgrep
-                - envsync
+                - /bin/sh
+                - -c
+                - "kill -0 1"
             initialDelaySeconds: 10
             periodSeconds: 30
             failureThreshold: 3
