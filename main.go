@@ -102,7 +102,13 @@ func runSimulatedService(ctx context.Context, name string) {
 				   strings.HasPrefix(key, "DATABASE_") || 
 				   strings.HasPrefix(key, "CORS_") {
 					// Obfuscate sensitive credentials
-					if strings.Contains(key, "PASS") || strings.Contains(key, "SECRET") || strings.Contains(key, "URL") {
+					if strings.Contains(key, "PASS") ||
+					   strings.Contains(key, "SECRET") ||
+					   strings.Contains(key, "URL") ||
+					   strings.Contains(key, "TOKEN") ||
+					   strings.Contains(key, "KEY") ||
+					   strings.Contains(key, "DSN") ||
+					   strings.Contains(key, "CREDENTIAL") {
 						val = "********"
 					}
 					activeEnvs = append(activeEnvs, fmt.Sprintf("%s=%s", key, val))
