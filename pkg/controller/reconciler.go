@@ -87,7 +87,7 @@ func (r *K8sReconciler) RunReconciliationLoop(ctx context.Context) {
 
 func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.GroupVersionResource, item unstructured.Unstructured) {
 	crName := item.GetName()
-	
+
 	// Unmarshal Unstructured object into our typed DbConfigSync struct
 	crBytes, err := json.Marshal(item.Object)
 	if err != nil {
@@ -135,7 +135,7 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 				hasError = true
 				continue
 			}
-			
+
 			keyVal, ok := secret.Data[dbSpec.ConnectionSecretRef.Key]
 			if !ok {
 				dbStatuses[dbId] = "KeyError"
@@ -170,7 +170,7 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 
 		dbStatuses[dbId] = "Connected"
 		EmitLog(dbSpec.Type, "success", "Successfully retrieved %d keys", len(configs))
-		
+
 		// Merge into main configs map (applying keyMapping if configured)
 		for k, v := range configs {
 			targetKey := k
@@ -197,14 +197,13 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 		EmitLog("operator", "error", "Transformations failed: %v", err)
 		return
 	}
-	EmitLog("operator", "success", "Transformations executed successfully. Syncing %d final keys.", len(finalConfigs))
-
 	// Fix 4: guard against empty result set
 	if len(finalConfigs) == 0 {
 		EmitLog("operator", "warn", "CR '%s': no configuration keys found after DB fetch and transforms. Skipping sync to avoid overwriting with empty data.", crName)
 		r.updateCRStatus(ctx, gvr, item, "Warning", "No configuration keys found — skipping sync.", dbStatuses, r.Versions[crName])
 		return
 	}
+	EmitLog("operator", "success", "Transformations executed successfully. Syncing %d final keys.", len(finalConfigs))
 
 	// 3. Write ConfigMap or Secret in K8s
 	syncChanged := false
@@ -279,29 +278,15 @@ func (r *K8sReconciler) syncConfigMap(ctx context.Context, name, namespace strin
 		return false, err
 	}
 
-	// Check if data or annotations changed.
-	// Only compare the operator-managed keys (not the full annotation map) to avoid
-	// spurious updates from third-party annotations (kubectl, Argo CD, Helm, etc.).
+	// Check if data or operator-managed annotations changed (additions or removals).
 	dataChanged := !reflect.DeepEqual(existing.Data, data)
-	annoChanged := false
-	for k, want := range annotations {
-		if got, ok := existing.Annotations[k]; !ok || got != want {
-			annoChanged = true
-			break
-		}
-	}
+	annoChanged := operatorAnnotationsChanged(existing.Annotations, annotations)
 
 	if dataChanged || annoChanged {
 		existing.Data = data
-		// Fix 2: merge annotations — preserve existing ones, overlay operator-managed keys
-		mergedAnnotations := make(map[string]string)
-		for k, v := range existing.Annotations {
-			mergedAnnotations[k] = v
-		}
-		for k, v := range annotations {
-			mergedAnnotations[k] = v
-		}
-		existing.Annotations = mergedAnnotations
+		// Merge: preserve third-party annotations, reconcile operator-managed keys
+		// (add desired keys, remove operator-managed keys no longer wanted).
+		existing.Annotations = mergeOperatorAnnotations(existing.Annotations, annotations)
 		_, err = cmClient.Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
 			return false, err
@@ -361,27 +346,13 @@ func (r *K8sReconciler) syncSecret(ctx context.Context, name, namespace string, 
 		return false, err
 	}
 
-	// Compare byteData and operator-managed annotation keys only (not the full map).
+	// Compare byteData and operator-managed annotation keys (additions and removals).
 	dataChanged := !reflect.DeepEqual(existing.Data, byteData)
-	annoChanged := false
-	for k, want := range annotations {
-		if got, ok := existing.Annotations[k]; !ok || got != want {
-			annoChanged = true
-			break
-		}
-	}
+	annoChanged := operatorAnnotationsChanged(existing.Annotations, annotations)
 
 	if dataChanged || annoChanged {
 		existing.Data = byteData
-		// Fix 2: merge annotations — preserve existing ones, overlay operator-managed keys
-		mergedAnnotations := make(map[string]string)
-		for k, v := range existing.Annotations {
-			mergedAnnotations[k] = v
-		}
-		for k, v := range annotations {
-			mergedAnnotations[k] = v
-		}
-		existing.Annotations = mergedAnnotations
+		existing.Annotations = mergeOperatorAnnotations(existing.Annotations, annotations)
 		_, err = secretClient.Update(ctx, existing, metav1.UpdateOptions{})
 		if err != nil {
 			return false, err
@@ -392,6 +363,47 @@ func (r *K8sReconciler) syncSecret(ctx context.Context, name, namespace string, 
 
 	EmitLog("k8s", "info", "Secret '%s/%s' is up-to-date. No changes.", namespace, name)
 	return false, nil
+}
+
+// reflectorAnnotationPrefix is the shared prefix for all operator-managed reflector keys.
+const reflectorAnnotationPrefix = "reflector.v1.k8s.emberstack.com/"
+
+// operatorAnnotationsChanged returns true when the desired set of operator-managed
+// annotation keys (additions OR removals) differs from what exists on the resource.
+func operatorAnnotationsChanged(existing, desired map[string]string) bool {
+	// Check for missing or changed desired keys.
+	for k, want := range desired {
+		if got, ok := existing[k]; !ok || got != want {
+			return true
+		}
+	}
+	// Check for stale operator-managed keys that are no longer desired.
+	for k := range existing {
+		if strings.HasPrefix(k, reflectorAnnotationPrefix) {
+			if _, stillWanted := desired[k]; !stillWanted {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// mergeOperatorAnnotations preserves third-party annotations on the resource,
+// adds/updates the desired operator-managed keys, and removes any operator-managed
+// keys that are no longer in the desired set (e.g. when reflection is disabled).
+func mergeOperatorAnnotations(existing, desired map[string]string) map[string]string {
+	merged := make(map[string]string, len(existing))
+	for k, v := range existing {
+		// Drop stale operator-managed keys; third-party keys are preserved.
+		if strings.HasPrefix(k, reflectorAnnotationPrefix) {
+			continue
+		}
+		merged[k] = v
+	}
+	for k, v := range desired {
+		merged[k] = v
+	}
+	return merged
 }
 
 func (r *K8sReconciler) updateCRStatus(ctx context.Context, gvr schema.GroupVersionResource, item unstructured.Unstructured, syncStatus, msg string, dbStatuses map[string]string, version int) {
