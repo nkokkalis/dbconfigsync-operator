@@ -1,0 +1,6 @@
+.git
+.github
+*.md
+charts/
+.helm-release/
+*.tgz

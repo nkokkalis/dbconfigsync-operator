@@ -22,16 +22,21 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o envsync main.go
 
 # 2. Production Stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 # Set runtime workspace
 WORKDIR /app
 
 # Install CA certificates for secure external database connections
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S appgroup \
+    && adduser -S appuser -G appgroup
 
 # Copy the compiled binary
 COPY --from=builder /app/envsync .
+
+# Run as non-root
+USER appuser
 
 # Command to execute the manager
 ENTRYPOINT ["./envsync"]
