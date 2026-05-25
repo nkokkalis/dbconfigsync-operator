@@ -4,6 +4,8 @@ metadata:
   name: dbconfigsync-operator
   namespace: operator-system
 ---
+# ClusterRole is required (not Role) because connectionSecretRef.namespace in a CR
+# can reference Secrets in namespaces other than the operator's own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -20,7 +22,7 @@ rules:
   # 2. ConfigMaps and Secrets (Read credentials and Write targets)
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 
   # 3. Namespaces (Read namespaces if needed for validation)
   - apiGroups: [""]

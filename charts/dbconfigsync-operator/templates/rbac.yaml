@@ -12,6 +12,8 @@ metadata:
 {{- end }}
 ---
 {{- if .Values.rbac.create }}
+# ClusterRole is required (not Role) because connectionSecretRef.namespace in a CR
+# can reference Secrets in namespaces other than the operator's own namespace.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -30,7 +32,7 @@ rules:
   # ConfigMaps and Secrets (Read source credentials, write sync targets)
   - apiGroups: [""]
     resources: ["configmaps", "secrets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
 
   # Namespace queries
   - apiGroups: [""]
