@@ -5,8 +5,7 @@ metadata:
   namespace: operator-system
 spec:
   targetConfigMap: "app-shared-env"
-  refreshInterval: 10
-  
+
   # Emberstack Reflector Namespace Replication Settings
   reflection:
     allowed: true

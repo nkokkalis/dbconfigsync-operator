@@ -21,9 +21,6 @@ spec:
                   type: string
                 targetSecret:
                   type: string
-                refreshInterval:
-                  type: integer
-                  minimum: 1
                 reflection:
                   type: object
                   properties:
@@ -54,8 +51,10 @@ spec:
                           - mongo
                       connectionUri:
                         type: string
+                        description: "Inline connection URI for the database. At least one of connectionUri or connectionSecretRef must be specified. When both are set, connectionSecretRef takes precedence."
                       connectionSecretRef:
                         type: object
+                        description: "Reference to a Kubernetes Secret containing the connection URI. At least one of connectionUri or connectionSecretRef must be specified. When both are set, this field takes precedence."
                         required:
                           - name
                           - key
@@ -103,6 +102,10 @@ spec:
                         type: string
                       operation:
                         type: string
+                        enum:
+                          - encode
+                          - decode
+                        description: "Base64 operation to apply. Defaults to 'encode' if omitted."
                       jsonPath:
                         type: string
             status:
