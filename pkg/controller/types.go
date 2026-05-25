@@ -15,10 +15,10 @@ type DbConfigSync struct {
 
 // DbConfigSyncSpec defines the desired state of DbConfigSync.
 type DbConfigSyncSpec struct {
-	TargetConfigMap string         `json:"targetConfigMap,omitempty"`
-	TargetSecret    string         `json:"targetSecret,omitempty"`
-	Reflection      ReflectionSpec `json:"reflection,omitempty"`
-	Databases       []DatabaseSpec `json:"databases"`
+	TargetConfigMap string          `json:"targetConfigMap,omitempty"`
+	TargetSecret    string          `json:"targetSecret,omitempty"`
+	Reflection      ReflectionSpec  `json:"reflection,omitempty"`
+	Databases       []DatabaseSpec  `json:"databases"`
 	Transforms      []TransformSpec `json:"transforms,omitempty"`
 }
 
@@ -32,11 +32,11 @@ type ReflectionSpec struct {
 
 // DatabaseSpec defines connection details and queries for a config source.
 type DatabaseSpec struct {
-	Type                string             `json:"type"` // postgresql, mysql, redis, mongodb
-	ConnectionUri       string             `json:"connectionUri,omitempty"`
-	ConnectionSecretRef *SecretReference   `json:"connectionSecretRef,omitempty"`
-	Query               string             `json:"query"` // query or key command
-	KeyMapping          map[string]string  `json:"keyMapping,omitempty"`
+	Type                string            `json:"type"` // postgresql, mysql, redis, mongodb
+	ConnectionUri       string            `json:"connectionUri,omitempty"`
+	ConnectionSecretRef *SecretReference  `json:"connectionSecretRef,omitempty"`
+	Query               string            `json:"query"` // query or key command
+	KeyMapping          map[string]string `json:"keyMapping,omitempty"`
 }
 
 // SecretReference references a key in a Kubernetes Secret.
@@ -48,8 +48,8 @@ type SecretReference struct {
 
 // TransformSpec defines variables generated dynamically via templates or joins.
 type TransformSpec struct {
-	Name          string   `json:"name"`          // Env variable target name (e.g. DATABASE_URL)
-	Type          string   `json:"type"`          // template, join, base64, jsonpath
+	Name          string   `json:"name"`                    // Env variable target name (e.g. DATABASE_URL)
+	Type          string   `json:"type"`                    // template, join, base64, jsonpath
 	Template      string   `json:"template,omitempty"`      // Go template string (used for 'template' type)
 	Separator     string   `json:"separator,omitempty"`     // Separator (used for 'join' type)
 	SourceKeys    []string `json:"sourceKeys,omitempty"`    // Keys to join (used for 'join' type)
