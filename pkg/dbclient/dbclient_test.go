@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestFetchConfig_UnsupportedType(t *testing.T) {
@@ -23,7 +24,9 @@ func TestFetchConfig_TypeAliasesAreRecognized(t *testing.T) {
 
 	for _, dbType := range recognized {
 		t.Run(dbType, func(t *testing.T) {
-			_, err := FetchConfig(context.Background(), dbType, "invalid-uri", "SELECT 1")
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_, err := FetchConfig(ctx, dbType, "invalid-uri", "SELECT 1")
 			if err != nil && strings.Contains(err.Error(), "unsupported database type") {
 				t.Errorf("type %q was unexpectedly rejected: %v", dbType, err)
 			}
