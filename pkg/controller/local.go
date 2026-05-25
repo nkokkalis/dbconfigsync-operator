@@ -16,12 +16,13 @@ import (
 
 // LocalReconciler simulates the operator locally using standard OS child processes.
 type LocalReconciler struct {
-	ConfigFile    string
-	OutEnvFile    string
-	ActiveConfigs map[string]string
-	ActiveVersion int
-	Processes     map[string]*exec.Cmd
-	ProcessMutex  sync.Mutex
+	ConfigFile     string
+	OutEnvFile     string
+	ActiveConfigs  map[string]string
+	ActiveVersion  int
+	LastReconciled time.Time
+	Processes      map[string]*exec.Cmd
+	ProcessMutex   sync.Mutex
 }
 
 // NewLocalReconciler creates a reconciler for local process simulation.
@@ -70,6 +71,18 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 	if err := json.Unmarshal(data, &spec); err != nil {
 		EmitLog("operator", "error", "Failed to parse local config json: %v", err)
 		return
+	}
+
+	// Honour refreshInterval: skip this reconcile cycle if the interval has not elapsed yet.
+	if spec.RefreshInterval != "" {
+		interval, err := time.ParseDuration(spec.RefreshInterval)
+		if err != nil {
+			EmitLog("operator", "warn", "Invalid refreshInterval %q, ignoring: %v", spec.RefreshInterval, err)
+		} else if !r.LastReconciled.IsZero() && time.Since(r.LastReconciled) < interval {
+			remaining := (interval - time.Since(r.LastReconciled)).Round(time.Second)
+			EmitLog("operator", "info", "Skipped — next reconcile in %s", remaining)
+			return
+		}
 	}
 
 	dbStatuses := make(map[string]string)
@@ -149,6 +162,8 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 		// Simulate rolling restart of microservices
 		r.restartLocalServices(spec.TargetConfigMap) // local simulation uses targetConfigMap string for service name identification
 	}
+
+	r.LastReconciled = time.Now()
 }
 
 func (r *LocalReconciler) writeEnvFile(configs map[string]string) error {

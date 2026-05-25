@@ -28,10 +28,11 @@ func EmitLog(source, evType, format string, args ...interface{}) {
 
 // K8sReconciler handles reconciliation inside the Kubernetes cluster.
 type K8sReconciler struct {
-	KubeClient    kubernetes.Interface
-	DynamicClient dynamic.Interface
-	CRDNamespace  string
-	Versions      map[string]int // Track current config version for each CR name
+	KubeClient     kubernetes.Interface
+	DynamicClient  dynamic.Interface
+	CRDNamespace   string
+	Versions       map[string]int       // Track current config version for each CR name
+	LastReconciled map[string]time.Time // Track when each CR was last reconciled
 }
 
 // NewK8sReconciler creates a new Kubernetes reconciler.
@@ -40,10 +41,11 @@ func NewK8sReconciler(kubeClient kubernetes.Interface, dynClient dynamic.Interfa
 		namespace = "default"
 	}
 	return &K8sReconciler{
-		KubeClient:    kubeClient,
-		DynamicClient: dynClient,
-		CRDNamespace:  namespace,
-		Versions:      make(map[string]int),
+		KubeClient:     kubeClient,
+		DynamicClient:  dynClient,
+		CRDNamespace:   namespace,
+		Versions:       make(map[string]int),
+		LastReconciled: make(map[string]time.Time),
 	}
 }
 
@@ -99,6 +101,18 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 	if err := json.Unmarshal(crBytes, &syncCR); err != nil {
 		EmitLog("operator", "error", "Failed to decode CR '%s' spec: %v", crName, err)
 		return
+	}
+
+	// Honour refreshInterval: skip this CR if the configured interval has not elapsed yet.
+	if syncCR.Spec.RefreshInterval != "" {
+		interval, err := time.ParseDuration(syncCR.Spec.RefreshInterval)
+		if err != nil {
+			EmitLog("operator", "warn", "CR '%s' has invalid refreshInterval %q, ignoring: %v", crName, syncCR.Spec.RefreshInterval, err)
+		} else if last, ok := r.LastReconciled[crName]; ok && time.Since(last) < interval {
+			remaining := (interval - time.Since(last)).Round(time.Second)
+			EmitLog("operator", "info", "CR '%s' skipped — next reconcile in %s", crName, remaining)
+			return
+		}
 	}
 
 	EmitLog("operator", "info", "Reconciling DbConfigSync '%s'...", crName)
@@ -238,6 +252,7 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 
 	if err := r.updateCRStatus(ctx, gvr, item, "Synced", "All database sources synchronized successfully.", dbStatuses, currVersion); err == nil {
 		r.Versions[crName] = currVersion
+		r.LastReconciled[crName] = time.Now()
 	}
 }
 
