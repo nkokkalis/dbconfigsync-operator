@@ -21,6 +21,11 @@ spec:
         app: dbconfigsync-operator
     spec:
       serviceAccountName: dbconfigsync-operator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: manager
           image: dbconfigsync-operator:latest
@@ -32,6 +37,21 @@ spec:
             - "kubernetes"
             - "-namespace"
             - "operator-system"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "kill -0 1"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
           resources:
             limits:
               cpu: 200m
