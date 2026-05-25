@@ -25,7 +25,7 @@ func main() {
 	mode := flag.String("mode", "kubernetes", "Execution mode: 'kubernetes', 'local' (dry-run), or 'service' (simulated process)")
 	kubeconfig := flag.String("kubeconfig", "", "Path to the kubeconfig file (optional)")
 	namespace := flag.String("namespace", "operator-system", "Kubernetes namespace to watch for DbConfigSync CRs")
-	
+
 	// Local dry-run parameters
 	localConfig := flag.String("config", "sync-config.json", "Local config JSON file (for local dry-run)")
 	localEnvOut := flag.String("env", "app-shared-env.properties", "Output environment variables file (for local dry-run)")
@@ -75,7 +75,7 @@ func main() {
 // runSimulatedService starts a loop logging injected environment variables.
 func runSimulatedService(ctx context.Context, name string) {
 	fmt.Printf("[%s] Mock microservice process started (PID: %d)\n", strings.ToUpper(name), os.Getpid())
-	
+
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
@@ -96,19 +96,25 @@ func runSimulatedService(ctx context.Context, name string) {
 				val := parts[1]
 
 				// Filters variables relevant to configuration syncing
-				if strings.HasPrefix(key, "DB_") || 
-				   strings.HasPrefix(key, "REDIS_") || 
-				   strings.HasPrefix(key, "MONGO_") || 
-				   strings.HasPrefix(key, "DATABASE_") || 
-				   strings.HasPrefix(key, "CORS_") {
+				if strings.HasPrefix(key, "DB_") ||
+					strings.HasPrefix(key, "REDIS_") ||
+					strings.HasPrefix(key, "MONGO_") ||
+					strings.HasPrefix(key, "DATABASE_") ||
+					strings.HasPrefix(key, "CORS_") {
 					// Obfuscate sensitive credentials
-					if strings.Contains(key, "PASS") || strings.Contains(key, "SECRET") || strings.Contains(key, "URL") {
+					if strings.Contains(key, "PASS") ||
+						strings.Contains(key, "SECRET") ||
+						strings.Contains(key, "URL") ||
+						strings.Contains(key, "TOKEN") ||
+						strings.Contains(key, "KEY") ||
+						strings.Contains(key, "DSN") ||
+						strings.Contains(key, "CREDENTIAL") {
 						val = "********"
 					}
 					activeEnvs = append(activeEnvs, fmt.Sprintf("%s=%s", key, val))
 				}
 			}
-			
+
 			if len(activeEnvs) == 0 {
 				fmt.Printf("[%s] Awaiting operator environment variable injection...\n", strings.ToUpper(name))
 			} else {
