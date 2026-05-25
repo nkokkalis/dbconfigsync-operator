@@ -9,17 +9,16 @@ RUN apk add --no-cache git build-base
 
 # Copy dependency manifest
 COPY go.mod go.sum ./
-# RUN go mod download (if any external packages exist, but we will run tidy in scripts)
+
+# Download exact module versions recorded in go.sum (reproducible, does not modify go.mod/go.sum)
+RUN go mod download
 
 # Copy source code
 COPY main.go ./
 COPY pkg/ ./pkg/
 
-# Fetch and cache dependencies
-RUN go mod tidy
-
 # Compile statically linked binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o envsync main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=readonly -ldflags="-w -s" -o envsync main.go
 
 # 2. Production Stage
 FROM alpine:3.22
@@ -30,7 +29,7 @@ WORKDIR /app
 # Install CA certificates for secure external database connections
 RUN apk add --no-cache ca-certificates \
     && addgroup -S appgroup \
-    && adduser -S appuser -G appgroup
+    && adduser -S -u 1000 appuser -G appgroup
 
 # Copy the compiled binary
 COPY --from=builder /app/envsync .
