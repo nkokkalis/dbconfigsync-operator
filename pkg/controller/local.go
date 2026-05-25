@@ -157,6 +157,10 @@ func (r *LocalReconciler) writeEnvFile(configs map[string]string) error {
 	fmt.Fprintf(&sb, "# Generated at: %s\n\n", time.Now().Format(time.RFC3339))
 
 	for k, v := range configs {
+		if strings.ContainsAny(k, "\r\n=") {
+			EmitLog("operator", "warn", "Skipping env key with invalid characters: %q", k)
+			continue
+		}
 		escapedV := strings.ReplaceAll(v, "\r", "\\r")
 		escapedV = strings.ReplaceAll(escapedV, "\n", "\\n")
 		fmt.Fprintf(&sb, "%s=%s\n", k, escapedV)
