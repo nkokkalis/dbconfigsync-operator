@@ -16,12 +16,12 @@ import (
 
 // LocalReconciler simulates the operator locally using standard OS child processes.
 type LocalReconciler struct {
-	ConfigFile     string
-	OutEnvFile     string
-	ActiveConfigs  map[string]string
-	ActiveVersion  int
-	Processes      map[string]*exec.Cmd
-	ProcessMutex   sync.Mutex
+	ConfigFile    string
+	OutEnvFile    string
+	ActiveConfigs map[string]string
+	ActiveVersion int
+	Processes     map[string]*exec.Cmd
+	ProcessMutex  sync.Mutex
 }
 
 // NewLocalReconciler creates a reconciler for local process simulation.
@@ -105,7 +105,7 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 
 		dbStatuses[dbId] = "Connected"
 		EmitLog(dbSpec.Type, "success", "Successfully retrieved %d keys from local DB", len(configs))
-		
+
 		for k, v := range configs {
 			targetKey := k
 			if dbSpec.KeyMapping != nil {
@@ -145,7 +145,7 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 		}
 
 		EmitLog("operator", "success", "Configuration version updated to v%d. Spawning rolling restart of local services...", r.ActiveVersion)
-		
+
 		// Simulate rolling restart of microservices
 		r.restartLocalServices(spec.TargetConfigMap) // local simulation uses targetConfigMap string for service name identification
 	}
@@ -157,20 +157,35 @@ func (r *LocalReconciler) writeEnvFile(configs map[string]string) error {
 	fmt.Fprintf(&sb, "# Generated at: %s\n\n", time.Now().Format(time.RFC3339))
 
 	for k, v := range configs {
-		fmt.Fprintf(&sb, "%s=%s\n", k, v)
+		if strings.ContainsAny(k, "\r\n=") {
+			EmitLog("operator", "warn", "Skipping env key with invalid characters: %q", k)
+			continue
+		}
+		escapedV := strings.ReplaceAll(v, "\r", "\\r")
+		escapedV = strings.ReplaceAll(escapedV, "\n", "\\n")
+		fmt.Fprintf(&sb, "%s=%s\n", k, escapedV)
 	}
 
-	return os.WriteFile(r.OutEnvFile, []byte(sb.String()), 0644)
+	if err := os.WriteFile(r.OutEnvFile, []byte(sb.String()), 0600); err != nil {
+		return err
+	}
+	// Explicitly chmod in case the file already existed with looser permissions.
+	return os.Chmod(r.OutEnvFile, 0600)
 }
 
 func (r *LocalReconciler) restartLocalServices(serviceListStr string) {
-	r.ProcessMutex.Lock()
-	defer r.ProcessMutex.Unlock()
-
 	// Parse services from the target ConfigMap specification (comma-separated string in local mode)
 	services := strings.Split(serviceListStr, ",")
 	if len(services) == 1 && services[0] == "" {
 		services = []string{"app-worker", "app-notifier"}
+	}
+
+	// Snapshot ActiveConfigs before spawning the goroutine to avoid a data race:
+	// reconcileLocal can reassign r.ActiveConfigs on the next tick while the goroutine
+	// is still iterating it.
+	configSnapshot := make(map[string]string, len(r.ActiveConfigs))
+	for k, v := range r.ActiveConfigs {
+		configSnapshot[k] = v
 	}
 
 	// Rolling restart logic (sequential restart with small delay)
@@ -182,12 +197,16 @@ func (r *LocalReconciler) restartLocalServices(serviceListStr string) {
 			}
 
 			EmitLog("operator", "warn", "Initiating rolling restart for local service '%s'...", sName)
-			
-			// Kill existing process
-			if cmd, exists := r.Processes[sName]; exists && cmd.Process != nil {
-				EmitLog("operator", "info", "Stopping active PID %d for service '%s'...", cmd.Process.Pid, sName)
-				_ = cmd.Process.Kill()
-				_, _ = cmd.Process.Wait()
+
+			// Kill existing process — lock only around the map READ
+			r.ProcessMutex.Lock()
+			oldCmd, exists := r.Processes[sName]
+			r.ProcessMutex.Unlock()
+
+			if exists && oldCmd.Process != nil {
+				EmitLog("operator", "info", "Stopping active PID %d for service '%s'...", oldCmd.Process.Pid, sName)
+				_ = oldCmd.Process.Kill()
+				_, _ = oldCmd.Process.Wait()
 			}
 
 			// Prepare command to launch simulated process
@@ -205,28 +224,32 @@ func (r *LocalReconciler) restartLocalServices(serviceListStr string) {
 				args = []string{"-mode", "service", "-serviceName", sName}
 			}
 
-			cmd := exec.Command(execPath, args...)
+			newCmd := exec.Command(execPath, args...)
 
-			// Inject the newly generated environment variables into the process env
+			// Inject the snapshotted environment variables into the process env
 			env := os.Environ()
-			for k, v := range r.ActiveConfigs {
+			for k, v := range configSnapshot {
 				env = append(env, fmt.Sprintf("%s=%s", k, v))
 			}
-			cmd.Env = env
+			newCmd.Env = env
 
 			// Pipe logs of child process to operator log output
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
+			newCmd.Stdout = os.Stdout
+			newCmd.Stderr = os.Stderr
 
-			err = cmd.Start()
+			err = newCmd.Start()
 			if err != nil {
 				EmitLog("operator", "error", "Failed to start local service '%s': %v", sName, err)
 				continue
 			}
 
-			r.Processes[sName] = cmd
-			EmitLog("operator", "success", "Service '%s' successfully restarted with new env configs (PID: %d)", sName, cmd.Process.Pid)
-			
+			// Lock only around the map WRITE
+			r.ProcessMutex.Lock()
+			r.Processes[sName] = newCmd
+			r.ProcessMutex.Unlock()
+
+			EmitLog("operator", "success", "Service '%s' successfully restarted with new env configs (PID: %d)", sName, newCmd.Process.Pid)
+
 			// Small delay to simulate rolling update
 			time.Sleep(2 * time.Second)
 		}
