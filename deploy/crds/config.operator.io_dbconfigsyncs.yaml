@@ -21,6 +21,9 @@ spec:
                   type: string
                 targetSecret:
                   type: string
+                refreshInterval:
+                  type: string
+                  description: "How often to reconcile this CR (e.g. '30s', '5m'). Omit to reconcile on every operator tick."
                 reflection:
                   type: object
                   properties:

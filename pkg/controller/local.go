@@ -16,12 +16,13 @@ import (
 
 // LocalReconciler simulates the operator locally using standard OS child processes.
 type LocalReconciler struct {
-	ConfigFile    string
-	OutEnvFile    string
-	ActiveConfigs map[string]string
-	ActiveVersion int
-	Processes     map[string]*exec.Cmd
-	ProcessMutex  sync.Mutex
+	ConfigFile     string
+	OutEnvFile     string
+	ActiveConfigs  map[string]string
+	ActiveVersion  int
+	LastReconciled time.Time
+	Processes      map[string]*exec.Cmd
+	ProcessMutex   sync.Mutex
 }
 
 // NewLocalReconciler creates a reconciler for local process simulation.
@@ -71,6 +72,21 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 		EmitLog("operator", "error", "Failed to parse local config json: %v", err)
 		return
 	}
+
+	// Honour refreshInterval: skip this reconcile cycle if the interval has not elapsed yet.
+	// LastReconciled is set immediately below so all code paths (errors included) are
+	// rate-limited — preventing a broken config from hammering DBs every 5s.
+	if spec.RefreshInterval != "" {
+		interval, err := time.ParseDuration(spec.RefreshInterval)
+		if err != nil || interval <= 0 {
+			EmitLog("operator", "warn", "Invalid refreshInterval %q, ignoring", spec.RefreshInterval)
+		} else if !r.LastReconciled.IsZero() && time.Since(r.LastReconciled) < interval {
+			remaining := (interval - time.Since(r.LastReconciled)).Round(time.Second)
+			EmitLog("operator", "info", "Skipped — next reconcile in %s", remaining)
+			return
+		}
+	}
+	r.LastReconciled = time.Now()
 
 	dbStatuses := make(map[string]string)
 	aggregatedConfigs := make(map[string]string)
