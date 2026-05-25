@@ -28,11 +28,10 @@ func EmitLog(source, evType, format string, args ...interface{}) {
 
 // K8sReconciler handles reconciliation inside the Kubernetes cluster.
 type K8sReconciler struct {
-	KubeClient     kubernetes.Interface
-	DynamicClient  dynamic.Interface
-	CRDNamespace   string
-	Versions       map[string]int       // Track current config version for each CR name
-	LastReconciled map[string]time.Time // Track when each CR was last reconciled
+	KubeClient    kubernetes.Interface
+	DynamicClient dynamic.Interface
+	CRDNamespace  string
+	Versions      map[string]int // Track current config version for each CR name
 }
 
 // NewK8sReconciler creates a new Kubernetes reconciler.
@@ -41,11 +40,10 @@ func NewK8sReconciler(kubeClient kubernetes.Interface, dynClient dynamic.Interfa
 		namespace = "default"
 	}
 	return &K8sReconciler{
-		KubeClient:     kubeClient,
-		DynamicClient:  dynClient,
-		CRDNamespace:   namespace,
-		Versions:       make(map[string]int),
-		LastReconciled: make(map[string]time.Time),
+		KubeClient:    kubeClient,
+		DynamicClient: dynClient,
+		CRDNamespace:  namespace,
+		Versions:      make(map[string]int),
 	}
 }
 
@@ -80,6 +78,17 @@ func (r *K8sReconciler) RunReconciliationLoop(ctx context.Context) {
 				continue
 			}
 
+			// Prune Versions entries for CRs that no longer exist.
+			active := make(map[string]struct{}, len(list.Items))
+			for _, item := range list.Items {
+				active[item.GetName()] = struct{}{}
+			}
+			for name := range r.Versions {
+				if _, exists := active[name]; !exists {
+					delete(r.Versions, name)
+				}
+			}
+
 			for _, item := range list.Items {
 				r.reconcileCustomResource(ctx, gvr, item)
 			}
@@ -104,14 +113,19 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 	}
 
 	// Honour refreshInterval: skip this CR if the configured interval has not elapsed yet.
+	// status.lastReconciled is written on every reconcile attempt (including error paths),
+	// so this rate-limits all attempts, survives operator restarts, and is consistent
+	// across replicas because it reads from cluster state rather than in-memory state.
 	if syncCR.Spec.RefreshInterval != "" {
 		interval, err := time.ParseDuration(syncCR.Spec.RefreshInterval)
-		if err != nil {
-			EmitLog("operator", "warn", "CR '%s' has invalid refreshInterval %q, ignoring: %v", crName, syncCR.Spec.RefreshInterval, err)
-		} else if last, ok := r.LastReconciled[crName]; ok && time.Since(last) < interval {
-			remaining := (interval - time.Since(last)).Round(time.Second)
-			EmitLog("operator", "info", "CR '%s' skipped — next reconcile in %s", crName, remaining)
-			return
+		if err != nil || interval <= 0 {
+			EmitLog("operator", "warn", "CR '%s' has invalid refreshInterval %q, ignoring", crName, syncCR.Spec.RefreshInterval)
+		} else if lastStr, ok, _ := unstructured.NestedString(item.Object, "status", "lastReconciled"); ok && lastStr != "" {
+			if last, err := time.Parse("2006-01-02 15:04:05", lastStr); err == nil && time.Since(last) < interval {
+				remaining := (interval - time.Since(last)).Round(time.Second)
+				EmitLog("operator", "info", "CR '%s' skipped — next reconcile in %s", crName, remaining)
+				return
+			}
 		}
 	}
 
@@ -252,7 +266,6 @@ func (r *K8sReconciler) reconcileCustomResource(ctx context.Context, gvr schema.
 
 	if err := r.updateCRStatus(ctx, gvr, item, "Synced", "All database sources synchronized successfully.", dbStatuses, currVersion); err == nil {
 		r.Versions[crName] = currVersion
-		r.LastReconciled[crName] = time.Now()
 	}
 }
 

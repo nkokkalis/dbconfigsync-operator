@@ -74,16 +74,19 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 	}
 
 	// Honour refreshInterval: skip this reconcile cycle if the interval has not elapsed yet.
+	// LastReconciled is set immediately below so all code paths (errors included) are
+	// rate-limited — preventing a broken config from hammering DBs every 5s.
 	if spec.RefreshInterval != "" {
 		interval, err := time.ParseDuration(spec.RefreshInterval)
-		if err != nil {
-			EmitLog("operator", "warn", "Invalid refreshInterval %q, ignoring: %v", spec.RefreshInterval, err)
+		if err != nil || interval <= 0 {
+			EmitLog("operator", "warn", "Invalid refreshInterval %q, ignoring", spec.RefreshInterval)
 		} else if !r.LastReconciled.IsZero() && time.Since(r.LastReconciled) < interval {
 			remaining := (interval - time.Since(r.LastReconciled)).Round(time.Second)
 			EmitLog("operator", "info", "Skipped — next reconcile in %s", remaining)
 			return
 		}
 	}
+	r.LastReconciled = time.Now()
 
 	dbStatuses := make(map[string]string)
 	aggregatedConfigs := make(map[string]string)
@@ -162,8 +165,6 @@ func (r *LocalReconciler) reconcileLocal(ctx context.Context) {
 		// Simulate rolling restart of microservices
 		r.restartLocalServices(spec.TargetConfigMap) // local simulation uses targetConfigMap string for service name identification
 	}
-
-	r.LastReconciled = time.Now()
 }
 
 func (r *LocalReconciler) writeEnvFile(configs map[string]string) error {

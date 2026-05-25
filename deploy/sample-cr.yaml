@@ -6,6 +6,9 @@ metadata:
 spec:
   targetConfigMap: "app-shared-env"
 
+  # How often to reconcile this CR. Omit to reconcile on every operator tick (default ~5s).
+  # refreshInterval: "2m"
+
   # Emberstack Reflector Namespace Replication Settings
   reflection:
     allowed: true
